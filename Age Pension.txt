@@ -1,0 +1,253 @@
+Age Pension Code:
+
+
+ Private Function getCentrelinkEntitlement(theDataGetter As HealthCheckCalculationFactory, Centrelink As AgePension, bAreTwoMembers As Boolean,
+                            dtCurrentDate As Date,
+                            pPersonOne As Person, pPersonTwo As Person,
+                            dPersonalAssets As Double,
+                            dNonSuperAssetsExProperty As Double,
+                            dNonSuperAssetsProperty As Double,
+                            dNonSuperRealRentalIncome As Double,
+                            dOtherIncome1 As Double, dOtherIncome2 As Double,
+                            dAccumulatedCPIDeflator As Double,
+                            ByRef dCentrelinkPmt As Double,
+                            ByRef dDeemedIncome As Double,
+                            ByRef dDeemableAssets As Double,
+                            ByRef dSuperIncome As Double,
+                            ByRef dIncomeTest As Double,
+                            ByRef dAssessableAssets As Double,
+                            ByRef dAssessableIncome As Double,
+                            ByRef dAssetTest As Double,
+                            ByRef dMaxAgePension As Double,
+                            dDeemingRateChange As Double,
+                            ByRef lWhoGetsCentrelink As Integer,
+                            printToTestSheet As Boolean, currentYearCPI As Double)
+
+        Dim dtCurrentDatePlusOne As Date
+        Dim initialCentrelinkEntitlement As Double
+
+        'store current work bonus values so can reset prior to each centrelink call and reset at end before going back to main loop
+        Dim currentWorkBonus1 As Double
+        Dim currentWorkBonus2 As Double
+
+        dtCurrentDatePlusOne = DateSerial(Year(dtCurrentDate) + 1, Month(dtCurrentDate), Day(dtCurrentDate))
+        initialCentrelinkEntitlement = 0
+        currentWorkBonus1 = Centrelink.WorkBonus(1)
+        currentWorkBonus2 = Centrelink.WorkBonus(2)
+
+        'if current date is on or after new asset test date new rates only - no proportion
+        'if current date plus one year is less than or equal to new asset test date use old rates only - no proportion
+        'determine age pension entitlement based on pre-existing rates
+
+        Select Case WhoAlive(bAreTwoMembers, pPersonOne.memberAlive, pPersonTwo.memberAlive)
+
+            Case 0 'both
+                Call Centrelink.AgePensionEntitlement(dtCurrentDate, pPersonOne, pPersonTwo,
+                                    dPersonalAssets,
+                                    dNonSuperAssetsExProperty,
+                                    dNonSuperAssetsProperty,
+                                    dNonSuperRealRentalIncome,
+                                    dOtherIncome1,
+                                    dOtherIncome2,
+                                    dAccumulatedCPIDeflator,
+                                    dCentrelinkPmt,
+                                    dDeemedIncome,
+                                    dDeemableAssets,
+                                    dSuperIncome,
+                                    dIncomeTest,
+                                    dAssessableAssets,
+                                    dAssessableIncome,
+                                    dAssetTest,
+                                    dMaxAgePension,
+                                    dDeemingRateChange,
+                                    lWhoGetsCentrelink)
+
+            Case 1
+                Call Centrelink.AgePensionEntitlement(dtCurrentDate, pPersonOne, pPersonOne,
+                            dPersonalAssets,
+                            dNonSuperAssetsExProperty,
+                            dNonSuperAssetsProperty,
+                            dNonSuperRealRentalIncome,
+                            dOtherIncome1,
+                            dOtherIncome2,
+                            dAccumulatedCPIDeflator,
+                            dCentrelinkPmt,
+                            dDeemedIncome,
+                            dDeemableAssets,
+                            dSuperIncome,
+                            dIncomeTest,
+                            dAssessableAssets,
+                            dAssessableIncome,
+                            dAssetTest,
+                            dMaxAgePension,
+                            dDeemingRateChange,
+                            lWhoGetsCentrelink)
+
+            Case 2
+                Call Centrelink.AgePensionEntitlement(dtCurrentDate, pPersonTwo, pPersonTwo,
+                            dPersonalAssets,
+                            dNonSuperAssetsExProperty,
+                            dNonSuperAssetsProperty,
+                            dNonSuperRealRentalIncome,
+                            dOtherIncome1,
+                            dOtherIncome2,
+                            dAccumulatedCPIDeflator,
+                            dCentrelinkPmt,
+                            dDeemedIncome,
+                            dDeemableAssets,
+                            dSuperIncome,
+                            dIncomeTest,
+                            dAssessableAssets,
+                            dAssessableIncome,
+                            dAssetTest,
+                            dMaxAgePension,
+                            dDeemingRateChange,
+                            lWhoGetsCentrelink)
+        End Select
+
+
+        'if current date (start of year) is prior to asset test change date, and current date + 1 year (start of next year) is after the new asset test date
+        'then the asset test date must be within the current year and need to do proportion
+        If dtCurrentDate <= theDataGetter.SSRefData.NewAssetTestDate And dtCurrentDatePlusOne > theDataGetter.SSRefData.NewAssetTestDate Then
+
+            'print output of hybrid year to test sheet
+            If printToTestSheet Then
+                Call cCommunicator.printTest("DateUseHybridAssetTest", 0, 0, dtCurrentDate)
+                Call cCommunicator.printTest("OldAssetTestThreshold", 0, 0, Centrelink.AssetsTestLower(dtCurrentDate, UCase(pPersonOne.memberCouple) = "C", pPersonOne.memberHome))
+                Call cCommunicator.printTest("OldEntitlement", 0, 0, dCentrelinkPmt)
+                Call cCommunicator.printTest("OldTaper", 0, 0, Centrelink.AssetTestTaperRate(dtCurrentDate))
+                Call cCommunicator.printTest("OldAssetTest", 0, 0, dAssetTest)
+                Call cCommunicator.printTest("OldIncomeTest", 0, 0, dIncomeTest)
+                Call cCommunicator.printTest("OldWorkBonus", 0, 0, Centrelink.WorkBonus(1) + Centrelink.WorkBonus(2))
+            End If
+
+            'reset work bonus amounts to reclaculate age pension entitlement
+            'Centrelink.workBonus1 = currentWorkBonus1
+            'Centrelink.workBonus2 = currentWorkBonus2
+            initialCentrelinkEntitlement = dCentrelinkPmt
+
+            'update asset test centrelink threshold and taper rates, after this year the rates will continue based on 'new rates'
+            'new thresholds will be 'real' so need to provide cpi deflator
+            Centrelink.AssetTestThresholdDeflator = dAccumulatedCPIDeflator * (1 + currentYearCPI) ^ (DateDiff("D", dtCurrentDate, theDataGetter.SSRefData.NewAssetTestDate) / DateDiff("D", dtCurrentDate, dtCurrentDatePlusOne))
+
+            'set centrelink assets test taper and thresholds to use 'new' ones for this date
+            Centrelink.IsHybridYear = True
+
+            'calculating new age pesnion amount will change the dCentrelinkPmt variable value
+            Select Case WhoAlive(bAreTwoMembers, pPersonOne.memberAlive, pPersonTwo.memberAlive)
+
+                Case 0 'both
+                    Call Centrelink.AgePensionEntitlement(dtCurrentDate, pPersonOne, pPersonTwo,
+                                        dPersonalAssets,
+                                        dNonSuperAssetsExProperty,
+                                        dNonSuperAssetsProperty,
+                                        dNonSuperRealRentalIncome,
+                                        dOtherIncome1,
+                                        dOtherIncome2,
+                                        dAccumulatedCPIDeflator,
+                                        dCentrelinkPmt,
+                                        dDeemedIncome,
+                                        dDeemableAssets,
+                                        dSuperIncome,
+                                        dIncomeTest,
+                                        dAssessableAssets,
+                                        dAssessableIncome,
+                                        dAssetTest,
+                                        dMaxAgePension,
+                                        dDeemingRateChange,
+                                        lWhoGetsCentrelink)
+
+                Case 1
+                    Call Centrelink.AgePensionEntitlement(dtCurrentDate, pPersonOne, pPersonOne,
+                                dPersonalAssets,
+                                dNonSuperAssetsExProperty,
+                                dNonSuperAssetsProperty,
+                                dNonSuperRealRentalIncome,
+                                dOtherIncome1,
+                                dOtherIncome2,
+                                dAccumulatedCPIDeflator,
+                                dCentrelinkPmt,
+                                dDeemedIncome,
+                                dDeemableAssets,
+                                dSuperIncome,
+                                dIncomeTest,
+                                dAssessableAssets,
+                                dAssessableIncome,
+                                dAssetTest,
+                                dMaxAgePension,
+                                dDeemingRateChange,
+                                lWhoGetsCentrelink)
+
+                Case 2
+                    Call Centrelink.AgePensionEntitlement(dtCurrentDate, pPersonTwo, pPersonTwo,
+                                dPersonalAssets,
+                                dNonSuperAssetsExProperty,
+                                dNonSuperAssetsProperty,
+                                dNonSuperRealRentalIncome,
+                                dOtherIncome1,
+                                dOtherIncome2,
+                                dAccumulatedCPIDeflator,
+                                dCentrelinkPmt,
+                                dDeemedIncome,
+                                dDeemableAssets,
+                                dSuperIncome,
+                                dIncomeTest,
+                                dAssessableAssets,
+                                dAssessableIncome,
+                                dAssetTest,
+                                dMaxAgePension,
+                                dDeemingRateChange,
+                                lWhoGetsCentrelink)
+            End Select
+
+            'print output of hybrid year to test sheet
+            If printToTestSheet Then
+                Call cCommunicator.printTest("NewAssetTestThreshold", 0, 0, Centrelink.AssetsTestLower(dtCurrentDate, UCase(pPersonOne.memberCouple) = "C", pPersonOne.memberHome))
+                Call cCommunicator.printTest("NewEntitlement", 0, 0, dCentrelinkPmt)
+                Call cCommunicator.printTest("ProportionNewAssetTest", 0, 0, DateDiff("D", theDataGetter.SSRefData.NewAssetTestDate, dtCurrentDatePlusOne) / DateDiff("D", dtCurrentDate, dtCurrentDatePlusOne))
+                Call cCommunicator.printTest("NewTaper", 0, 0, Centrelink.AssetTestTaperRate(dtCurrentDate))
+                Call cCommunicator.printTest("NewAssetTest", 0, 0, dAssetTest)
+                Call cCommunicator.printTest("NewIncomeTest", 0, 0, dIncomeTest)
+                Call cCommunicator.printTest("NewWorkBonus", 0, 0, Centrelink.WorkBonus(1) + Centrelink.WorkBonus(2))
+            End If
+
+            'set hybrid year back to false for centrelink
+            Centrelink.IsHybridYear = False
+
+            'proportion the two centrelink results to determine centrelink entitlement
+            dCentrelinkPmt = initialCentrelinkEntitlement * DateDiff("D", dtCurrentDate, theDataGetter.SSRefData.NewAssetTestDate) / DateDiff("D", dtCurrentDate, dtCurrentDatePlusOne) _
+                           + dCentrelinkPmt * DateDiff("D", theDataGetter.SSRefData.NewAssetTestDate, dtCurrentDatePlusOne) / DateDiff("D", dtCurrentDate, dtCurrentDatePlusOne)
+
+            If printToTestSheet Then
+                Call cCommunicator.printTest("ApportionedEntitlement", 0, 0, dCentrelinkPmt)
+            End If
+
+        End If
+
+    End Function
+
+
+
+Age Pension Eligibility
+   Public Function AgePensionEligible(dob As Object, gGender As String) As Double
+        'Function to return the minimum age at which a life is eligible for the age pension.
+        'If there are flaws or errors in the input parameter the return value will be negative.
+        Dim age As Double
+        Dim localGender As String
+        localGender = "MALE"
+        If (UCase(gGender) Like "*F*") Then localGender = "FEMALE"
+        age = -1.0#
+
+        Dim gender As Gender = Gender.Male
+        If localGender = "FEMALE" Then
+            gender = Gender.Female
+        End If
+
+        age = _socialSecurityRefData.GetAgePensionQualification(gender, dob)
+
+        AgePensionEligible = age
+    End Function
+
+
+
+
